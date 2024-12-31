@@ -1,0 +1,46 @@
+name: Deploy to Kubernetes
+
+on:
+  workflow_run:
+    workflows: ["Build and Test"]
+    branches: [main]
+    types: [completed]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Configure kubectl
+      uses: azure/k8s-set-context@v1
+      with:
+        kubeconfig: ${{ secrets.KUBE_CONFIG }}
+    
+    - name: Install Helm
+      uses: azure/setup-helm@v1
+      with:
+        version: 'v3.8.0'
+    
+    - name: Deploy to Kubernetes
+      run: |
+        # Update Helm dependencies
+        helm dependency update ./helm
+        
+        # Deploy using Helm
+        helm upgrade --install app ./helm \
+          --namespace production \
+          --set image.tag=${{ github.sha }} \
+          --set image.repository=${{ secrets.REGISTRY_URL }}/app \
+          --values ./helm/values.yaml
+        
+        # Verify deployment
+        kubectl rollout status deployment/app -n production
+    
+    - name: Monitor Deployment
+      run: |
+        # Check deployment health
+        kubectl get pods -n production
+        kubectl get services -n production
